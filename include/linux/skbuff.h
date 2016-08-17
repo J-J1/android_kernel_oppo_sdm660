@@ -2220,7 +2220,7 @@ static inline int pskb_network_may_pull(struct sk_buff *skb, unsigned int len)
 
 int ___pskb_trim(struct sk_buff *skb, unsigned int len);
 
-static inline void __skb_trim(struct sk_buff *skb, unsigned int len)
+static inline void __skb_set_length(struct sk_buff *skb, unsigned int len)
 {
 	if (unlikely(skb_is_nonlinear(skb))) {
 		WARN_ON(1);
@@ -2228,6 +2228,11 @@ static inline void __skb_trim(struct sk_buff *skb, unsigned int len)
 	}
 	skb->len = len;
 	skb_set_tail_pointer(skb, len);
+}
+
+static inline void __skb_trim(struct sk_buff *skb, unsigned int len)
+{
+	__skb_set_length(skb, len);
 }
 
 void skb_trim(struct sk_buff *skb, unsigned int len);
@@ -2258,6 +2263,20 @@ static inline void pskb_trim_unique(struct sk_buff *skb, unsigned int len)
 {
 	int err = pskb_trim(skb, len);
 	BUG_ON(err);
+}
+
+static inline int __skb_grow(struct sk_buff *skb, unsigned int len)
+{
+	unsigned int diff = len - skb->len;
+
+	if (skb_tailroom(skb) < diff) {
+		int ret = pskb_expand_head(skb, 0, diff - skb_tailroom(skb),
+					   GFP_ATOMIC);
+		if (ret)
+			return ret;
+	}
+	__skb_set_length(skb, len);
+	return 0;
 }
 
 /**
@@ -2843,6 +2862,27 @@ static inline int pskb_trim_rcsum(struct sk_buff *skb, unsigned int len)
 	if (skb->ip_summed == CHECKSUM_COMPLETE)
 		skb->ip_summed = CHECKSUM_NONE;
 	return __pskb_trim(skb, len);
+}
+
+#define rb_to_skb(rb) rb_entry_safe(rb, struct sk_buff, rbnode)
+#define skb_rb_first(root) rb_to_skb(rb_first(root))
+#define skb_rb_last(root)  rb_to_skb(rb_last(root))
+#define skb_rb_next(skb)   rb_to_skb(rb_next(&(skb)->rbnode))
+#define skb_rb_prev(skb)   rb_to_skb(rb_prev(&(skb)->rbnode))
+
+static inline int __skb_trim_rcsum(struct sk_buff *skb, unsigned int len)
+{
+	if (skb->ip_summed == CHECKSUM_COMPLETE)
+		skb->ip_summed = CHECKSUM_NONE;
+	__skb_trim(skb, len);
+	return 0;
+}
+
+static inline int __skb_grow_rcsum(struct sk_buff *skb, unsigned int len)
+{
+	if (skb->ip_summed == CHECKSUM_COMPLETE)
+		skb->ip_summed = CHECKSUM_NONE;
+	return __skb_grow(skb, len);
 }
 
 #define skb_queue_walk(queue, skb) \
@@ -3625,6 +3665,13 @@ static inline bool skb_is_gso(const struct sk_buff *skb)
 static inline bool skb_is_gso_v6(const struct sk_buff *skb)
 {
 	return skb_shinfo(skb)->gso_type & SKB_GSO_TCPV6;
+}
+
+static inline void skb_gso_reset(struct sk_buff *skb)
+{
+	skb_shinfo(skb)->gso_size = 0;
+	skb_shinfo(skb)->gso_segs = 0;
+	skb_shinfo(skb)->gso_type = 0;
 }
 
 void __skb_warn_lro_forwarding(const struct sk_buff *skb);
