@@ -1,0 +1,11 @@
+ifneq ($(TARGET_PRODUCT),)
+ccflags-y += -DCONFIG_OPPO_FINGERPRINT_PLATFORM=$(TARGET_PRODUCT)
+else
+ccflags-y += -DCONFIG_OPPO_FINGERPRINT_PLATFORM=660
+endif
+ifneq ($(PROJECT_NAME),)
+ccflags-y += -DCONFIG_OPPO_FINGERPRINT_PROJCT=$(PROJECT_NAME)
+else
+ccflags-y += -DCONFIG_OPPO_FINGERPRINT_PROJCT=0
+endif
+obj-y     +=  oppo_fp_common.o
