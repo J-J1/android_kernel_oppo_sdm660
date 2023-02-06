@@ -1882,10 +1882,6 @@ out:
 	return (error < 0 ? error : 0);
 }
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 3a5e5b7e8d7c4b8b905cd1ced6f90738430bb8d3
 void ext4_inline_data_truncate(struct inode *inode, int *has_inline)
 {
 	handle_t *handle;

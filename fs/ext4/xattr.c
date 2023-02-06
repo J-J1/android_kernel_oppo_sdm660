@@ -1067,11 +1067,7 @@ int ext4_xattr_ibody_inline_set(handle_t *handle, struct inode *inode,
 
 	if (EXT4_I(inode)->i_extra_isize == 0)
 		return -ENOSPC;
-<<<<<<< HEAD
-	error = ext4_xattr_set_entry(i, s);
-=======
 	error = ext4_xattr_set_entry(i, s, inode);
->>>>>>> 3a5e5b7e8d7c4b8b905cd1ced6f90738430bb8d3
 	if (error)
 		return error;
 	header = IHDR(inode, ext4_raw_inode(&is->iloc));
