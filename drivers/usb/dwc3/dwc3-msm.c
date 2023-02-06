@@ -4065,6 +4065,8 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		pm_runtime_set_suspended(mdwc->dev);
 		pm_runtime_enable(mdwc->dev);
 		/* fall-through */
+#ifndef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2017/02/18, sjc Modify for OTG sw */
 	case DRD_STATE_IDLE:
 		if (test_bit(WAIT_FOR_LPM, &mdwc->inputs)) {
 			dev_dbg(mdwc->dev, "still not in lpm, wait.\n");
@@ -4102,6 +4104,9 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 			dev_dbg(mdwc->dev, "Cable disconnected\n");
 		}
 		break;
+
+#ifndef VENDOR_EDIT
+/* Jianchao.Shi@BSP.CHG.Basic, 2017/02/18, sjc Modify for OTG sw */
 
 	case DRD_STATE_PERIPHERAL:
 		if (!test_bit(B_SESS_VLD, &mdwc->inputs) ||
@@ -4200,7 +4205,6 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		}
 		break;
 
-	case OTG_STATE_A_HOST:
 #ifndef VENDOR_EDIT
 /* Jianchao.Shi@BSP.CHG.Basic, 2017/02/18, sjc Modify for OTG sw */
 	case DRD_STATE_HOST:
