@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018,2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -1603,8 +1603,8 @@ static int __ipa_mdfy_rt_rule(struct ipa_rt_rule_mdfy *rtrule)
 	}
 
 	if (!strcmp(entry->tbl->name, IPA_DFLT_RT_TBL_NAME)) {
-	IPAERR_RL("Default tbl rule cannot be modified\n");
-	return -EINVAL;
+		IPAERR_RL("Default tbl rule cannot be modified\n");
+		return -EINVAL;
 	}
 
 	/* Adding check to confirm still

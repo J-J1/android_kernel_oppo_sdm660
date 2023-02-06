@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -39,6 +39,7 @@
 #define FIRMWARE_SIZE			0X00A00000
 #define REG_ADDR_OFFSET_BITMASK	0x000FFFFF
 #define QDSS_IOVA_START 0x80001000
+#define MIN_PAYLOAD_SIZE 3
 
 static struct hal_device_data hal_ctxt;
 
@@ -3376,9 +3377,11 @@ exit:
 	return;
 }
 
-static void __process_sys_error(struct venus_hfi_device *device)
+static void print_sfr_message(struct venus_hfi_device *device)
 {
 	struct hfi_sfr_struct *vsfr = NULL;
+	u32 vsfr_size = 0;
+	void *p = NULL;
 
 	/* Once SYS_ERROR received from HW, it is safe to halt the AXI.
 	 * With SYS_ERROR, Venus FW may have crashed and HW might be
@@ -3389,12 +3392,11 @@ static void __process_sys_error(struct venus_hfi_device *device)
 
 	vsfr = (struct hfi_sfr_struct *)device->sfr.align_virtual_addr;
 	if (vsfr) {
-		void *p = memchr(vsfr->rg_data, '\0', vsfr->bufSize);
-		/* SFR isn't guaranteed to be NULL terminated
-		   since SYS_ERROR indicates that Venus is in the
-		   process of crashing.*/
+		vsfr_size = vsfr->bufSize - sizeof(u32);
+		p = memchr(vsfr->rg_data, '\0', vsfr_size);
+		/* SFR isn't guaranteed to be NULL terminated */
 		if (p == NULL)
-			vsfr->rg_data[vsfr->bufSize - 1] = '\0';
+			vsfr->rg_data[vsfr_size - 1] = '\0';
 
 		dprintk(VIDC_ERR, "SFR Message from FW: %s\n",
 				vsfr->rg_data);
@@ -3429,23 +3431,55 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 		log_level = VIDC_ERR;
 	}
 
+#define SKIP_INVALID_PKT(pkt_size, payload_size, pkt_hdr_size) ({ \
+		if (pkt_size < pkt_hdr_size || \
+			payload_size < MIN_PAYLOAD_SIZE || \
+			payload_size > \
+			(pkt_size - pkt_hdr_size + sizeof(u8))) { \
+			dprintk(VIDC_ERR, \
+				"%s: invalid msg size - %d\n", \
+				__func__, pkt->msg_size); \
+			continue; \
+		} \
+	})
+
 	while (!__iface_dbgq_read(device, packet)) {
-		struct hfi_msg_sys_coverage_packet *pkt =
-			(struct hfi_msg_sys_coverage_packet *) packet;
+		struct hfi_packet_header *pkt =
+			(struct hfi_packet_header *) packet;
+
+		if (pkt->size < sizeof(struct hfi_packet_header)) {
+			dprintk(VIDC_ERR, "Invalid pkt size - %s\n",
+				__func__);
+			continue;
+		}
+
 		if (pkt->packet_type == HFI_MSG_SYS_COV) {
+			struct hfi_msg_sys_coverage_packet *pkt =
+				(struct hfi_msg_sys_coverage_packet *) packet;
 			int stm_size = 0;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
+
 			stm_size = stm_log_inv_ts(0, 0,
 				pkt->rg_msg_data, pkt->msg_size);
 			if (stm_size == 0)
 				dprintk(VIDC_ERR,
 					"In %s, stm_log returned size of 0\n",
 					__func__);
-		} else {
+
+		} else if (pkt->packet_type == HFI_MSG_SYS_DEBUG) {
 			struct hfi_msg_sys_debug_packet *pkt =
 				(struct hfi_msg_sys_debug_packet *) packet;
+
+			SKIP_INVALID_PKT(pkt->size,
+				pkt->msg_size, sizeof(*pkt));
+
+			pkt->rg_msg_data[pkt->msg_size-1] = '\0';
 			dprintk(log_level, "%s", pkt->rg_msg_data);
 		}
 	}
+#undef SKIP_INVALID_PKT
 
 	if (local_packet)
 		kfree(packet);
@@ -3486,8 +3520,6 @@ static int __response_handler(struct venus_hfi_device *device)
 	}
 
 	if (device->intr_status & VIDC_WRAPPER_INTR_CLEAR_A2HWD_BMSK) {
-		struct hfi_sfr_struct *vsfr = (struct hfi_sfr_struct *)
-			device->sfr.align_virtual_addr;
 		struct msm_vidc_cb_info info = {
 			.response_type = HAL_SYS_WATCHDOG_TIMEOUT,
 			.response.cmd = {
@@ -3495,9 +3527,7 @@ static int __response_handler(struct venus_hfi_device *device)
 			}
 		};
 
-		if (vsfr)
-			dprintk(VIDC_ERR, "SFR Message from FW: %s\n",
-					vsfr->rg_data);
+		print_sfr_message(device);
 
 		dprintk(VIDC_ERR, "Received watchdog timeout\n");
 		packets[packet_count++] = info;
@@ -3523,7 +3553,7 @@ static int __response_handler(struct venus_hfi_device *device)
 		/* Process the packet types that we're interested in */
 		switch (info->response_type) {
 		case HAL_SYS_ERROR:
-			__process_sys_error(device);
+			print_sfr_message(device);
 			break;
 		case HAL_SYS_RELEASE_RESOURCE_DONE:
 			dprintk(VIDC_DBG, "Received SYS_RELEASE_RESOURCE\n");
