@@ -84,4 +84,4 @@ obj-$(CONFIG_RMNET_DATA) += rmnet_data/
 #Add code for appo sla function
 obj-y                   	+= oppo_sla/
 #endif /* VENDOR_EDIT */
-S
+
