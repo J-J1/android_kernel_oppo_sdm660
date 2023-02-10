@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -5436,8 +5436,8 @@ int wlan_hdd_send_roam_auth_event(hdd_adapter_t *adapter, uint8_t *bssid,
 			ETH_ALEN + req_rsn_len + rsp_rsn_len +
 			sizeof(uint8_t) + SIR_REPLAY_CTR_LEN +
 			SIR_KCK_KEY_LEN + roam_info_ptr->kek_len +
-			sizeof(uint8_t) + (8 * NLMSG_HDRLEN) +
-			fils_params_len,
+			sizeof(uint16_t) + sizeof(uint8_t) +
+			(9 * NLMSG_HDRLEN) + fils_params_len,
 			QCA_NL80211_VENDOR_SUBCMD_KEY_MGMT_ROAM_AUTH_INDEX,
 			GFP_KERNEL);
 
@@ -6689,7 +6689,7 @@ static int __wlan_hdd_cfg80211_wifi_logger_get_ring_data(struct wiphy *wiphy,
 				WLAN_LOG_REASON_CODE_UNUSED,
 				true, false);
 		if (QDF_STATUS_SUCCESS != status) {
-			hdd_err("Failed to trigger bug report");
+			hdd_debug("Failed to trigger bug report");
 			return -EINVAL;
 		}
 	} else {
@@ -6761,7 +6761,7 @@ static int hdd_map_req_id_to_pattern_id(hdd_context_t *hdd_ctx,
 		}
 	}
 	mutex_unlock(&hdd_ctx->op_ctx.op_lock);
-	return -EINVAL;
+	return -ENOBUFS;
 }
 
 /**
@@ -6829,7 +6829,8 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 {
 	struct sSirAddPeriodicTxPtrn *add_req;
 	QDF_STATUS status;
-	uint32_t request_id, ret, len;
+	uint32_t request_id, len;
+	int32_t ret;
 	uint8_t pattern_id = 0;
 	struct qdf_mac_addr dst_addr;
 	uint16_t eth_type = htons(ETH_P_IP);
@@ -6848,29 +6849,34 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 	/* Parse and fetch request Id */
 	if (!tb[PARAM_REQUEST_ID]) {
 		hdd_err("attr request id failed");
+		ret = -EINVAL;
 		goto fail;
 	}
 
 	request_id = nla_get_u32(tb[PARAM_REQUEST_ID]);
 	if (request_id == MAX_REQUEST_ID) {
 		hdd_err("request_id cannot be MAX");
+		ret = -EINVAL;
 		goto fail;
 	}
 	hdd_debug("Request Id: %u", request_id);
 
 	if (!tb[PARAM_PERIOD]) {
 		hdd_err("attr period failed");
+		ret = -EINVAL;
 		goto fail;
 	}
 	add_req->usPtrnIntervalMs = nla_get_u32(tb[PARAM_PERIOD]);
 	hdd_debug("Period: %u ms", add_req->usPtrnIntervalMs);
 	if (add_req->usPtrnIntervalMs == 0) {
 		hdd_err("Invalid interval zero, return failure");
+		ret = -EINVAL;
 		goto fail;
 	}
 
 	if (!tb[PARAM_SRC_MAC_ADDR]) {
 		hdd_err("attr source mac address failed");
+		ret = -EINVAL;
 		goto fail;
 	}
 	nla_memcpy(add_req->mac_address.bytes, tb[PARAM_SRC_MAC_ADDR],
@@ -6881,11 +6887,13 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 	if (!qdf_is_macaddr_equal(&add_req->mac_address,
 				  &adapter->macAddressCurrent)) {
 		hdd_err("input src mac address and connected ap bssid are different");
+		ret = -EINVAL;
 		goto fail;
 	}
 
 	if (!tb[PARAM_DST_MAC_ADDR]) {
 		hdd_err("attr dst mac address failed");
+		ret = -EINVAL;
 		goto fail;
 	}
 	nla_memcpy(dst_addr.bytes, tb[PARAM_DST_MAC_ADDR], QDF_MAC_ADDR_SIZE);
@@ -6894,6 +6902,7 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 
 	if (!tb[PARAM_IP_PACKET]) {
 		hdd_err("attr ip packet failed");
+		ret = -EINVAL;
 		goto fail;
 	}
 	add_req->ucPtrnSize = nla_len(tb[PARAM_IP_PACKET]);
@@ -6904,6 +6913,7 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 					ETH_HLEN)) {
 		hdd_err("Invalid IP packet len: %d",
 				add_req->ucPtrnSize);
+		ret = -EINVAL;
 		goto fail;
 	}
 
@@ -6938,16 +6948,15 @@ wlan_hdd_add_tx_ptrn(hdd_adapter_t *adapter, hdd_context_t *hdd_ctx,
 	status = sme_add_periodic_tx_ptrn(hdd_ctx->hHal, add_req);
 	if (!QDF_IS_STATUS_SUCCESS(status)) {
 		hdd_err("sme_add_periodic_tx_ptrn failed (err=%d)", status);
+		ret = qdf_status_to_os_return(status);
 		goto fail;
 	}
 
 	EXIT();
-	qdf_mem_free(add_req);
-	return 0;
 
 fail:
 	qdf_mem_free(add_req);
-	return -EINVAL;
+	return ret;
 }
 
 /**
@@ -14138,6 +14147,12 @@ static void wlan_hdd_update_band_cap(hdd_context_t *hdd_ctx)
 	uint16_t val16;
 	tSirMacHTCapabilityInfo *ht_cap_info;
 	QDF_STATUS status;
+	struct ieee80211_supported_band *band_2g;
+	struct ieee80211_supported_band *band_5g;
+	uint8_t i;
+
+	band_2g = hdd_ctx->wiphy->bands[HDD_NL80211_BAND_2GHZ];
+	band_5g = hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ];
 
 	status = sme_cfg_get_int(hdd_ctx->hHal, WNI_CFG_HT_CAP_INFO, &val32);
 	if (QDF_STATUS_SUCCESS != status) {
@@ -14163,6 +14178,26 @@ static void wlan_hdd_update_band_cap(hdd_context_t *hdd_ctx)
 		hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ]->
 						vht_cap.vht_supported = 0;
 		hdd_ctx->wiphy->bands[HDD_NL80211_BAND_5GHZ]->vht_cap.cap = 0;
+	}
+	if (band_2g) {
+		for (i = 0; i < hdd_ctx->num_rf_chains; i++)
+			band_2g->ht_cap.mcs.rx_mask[i] = 0xff;
+			/*
+			 * According to mcs_nss HT MCS parameters highest data
+			 * rate for Nss = 1 is 150 Mbps
+			 */
+		 band_2g->ht_cap.mcs.rx_highest =
+				cpu_to_le16(150 * hdd_ctx->num_rf_chains);
+	}
+	if (band_5g) {
+		for (i = 0; i < hdd_ctx->num_rf_chains; i++)
+			band_5g->ht_cap.mcs.rx_mask[i] = 0xff;
+		/*
+		 * According to mcs_nss HT MCS parameters highest data
+		 * rate for Nss = 1 is 150 Mbps
+		 */
+		band_5g->ht_cap.mcs.rx_highest =
+			cpu_to_le16(150 * hdd_ctx->num_rf_chains);
 	}
 }
 
@@ -14803,6 +14838,9 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 			 TRACE_CODE_HDD_CFG80211_CHANGE_IFACE,
 			 pAdapter->sessionId, type));
 
+	if (wlan_hdd_check_mon_concurrency())
+		return -EINVAL;
+
 	hdd_debug("Device_mode = %d, IFTYPE = 0x%x",
 	       pAdapter->device_mode, type);
 
@@ -14839,6 +14877,8 @@ static int __wlan_hdd_cfg80211_change_iface(struct wiphy *wiphy,
 
 		pRoamProfile = &pWextState->roamProfile;
 		LastBSSType = pRoamProfile->BSSType;
+
+		hdd_thermal_mitigation_disable(pHddCtx);
 
 		switch (type) {
 		case NL80211_IFTYPE_STATION:
@@ -14976,6 +15016,7 @@ done:
 	if (pAdapter->device_mode == QDF_STA_MODE) {
 		hdd_debug("Sending Lpass mode change notification");
 		hdd_lpass_notify_mode_change(pAdapter);
+		hdd_thermal_mitigation_enable(pHddCtx);
 	}
 
 	EXIT();
@@ -16511,8 +16552,6 @@ int wlan_hdd_cfg80211_pmksa_candidate_notify(hdd_adapter_t *adapter,
 					     int index, bool preauth)
 {
 	struct net_device *dev = adapter->dev;
-	hdd_context_t *hdd_ctx = (hdd_context_t *) adapter->pHddCtx;
-	struct pmkid_mode_bits pmkid_modes;
 
 	ENTER();
 	hdd_debug("is going to notify supplicant of:");
@@ -16522,14 +16561,13 @@ int wlan_hdd_cfg80211_pmksa_candidate_notify(hdd_adapter_t *adapter,
 		return -EINVAL;
 	}
 
-	hdd_get_pmkid_modes(hdd_ctx, &pmkid_modes);
-	if (pmkid_modes.fw_okc) {
-		hdd_debug(MAC_ADDRESS_STR,
-		       MAC_ADDR_ARRAY(roam_info->bssid.bytes));
-		cfg80211_pmksa_candidate_notify(dev, index,
-						roam_info->bssid.bytes,
-						preauth, GFP_KERNEL);
-	}
+	/*
+	 * Supplicant should be notified regardless the PMK caching or OKC
+	 * is enabled in firmware or not
+	 */
+	hdd_debug(MAC_ADDRESS_STR, MAC_ADDR_ARRAY(roam_info->bssid.bytes));
+	cfg80211_pmksa_candidate_notify(dev, index, roam_info->bssid.bytes,
+					preauth, GFP_KERNEL);
 	return 0;
 }
 
@@ -16945,6 +16983,13 @@ static int wlan_hdd_cfg80211_connect_start(hdd_adapter_t *pAdapter,
 	pRoamProfile = &pWextState->roamProfile;
 	qdf_mem_zero(&hdd_sta_ctx->conn_info.conn_flag,
 		     sizeof(hdd_sta_ctx->conn_info.conn_flag));
+
+	/*
+	 * Reset the ptk, gtk status flags to avoid using old/previous
+	 * connection status.
+	 */
+	hdd_sta_ctx->conn_info.gtk_installed = false;
+	hdd_sta_ctx->conn_info.ptk_installed = false;
 
 	if (pRoamProfile) {
 		hdd_station_ctx_t *pHddStaCtx;
@@ -18481,6 +18526,8 @@ int wlan_hdd_try_disconnect(hdd_adapter_t *pAdapter)
 			if (!rc) {
 				hdd_err("roaming comp var timed out session Id: %d",
 					pAdapter->sessionId);
+				/* Clear roaming in progress flag */
+				hdd_set_roaming_in_progress(false);
 			}
 			if (pAdapter->roam_ho_fail) {
 				INIT_COMPLETION(pAdapter->disconnect_comp_var);
@@ -18603,8 +18650,13 @@ static int wlan_hdd_reassoc_bssid_hint(hdd_adapter_t *adapter,
 		qdf_mem_copy(wext_state->req_bssId.bytes, bssid,
 			     QDF_MAC_ADDR_SIZE);
 
+		hdd_set_roaming_in_progress(true);
+
 		status = hdd_reassoc(adapter, bssid, channel,
 				      CONNECT_CMD_USERSPACE);
+		if (QDF_IS_STATUS_ERROR(status))
+			hdd_set_roaming_in_progress(false);
+
 		hdd_debug("hdd_reassoc: status: %d", status);
 	}
 	return status;
@@ -18743,10 +18795,8 @@ static int __wlan_hdd_cfg80211_connect(struct wiphy *wiphy,
 	 * Check if this is reassoc to same bssid, if reassoc is success, return
 	 */
 	status = wlan_hdd_reassoc_bssid_hint(pAdapter, req);
-	if (!status) {
-		hdd_set_roaming_in_progress(true);
+	if (!status)
 		return status;
-	}
 
 	/* Try disconnecting if already in connected state */
 	status = wlan_hdd_try_disconnect(pAdapter);
@@ -18865,6 +18915,8 @@ int wlan_hdd_disconnect(hdd_adapter_t *pAdapter, u16 reason)
 			if (!rc) {
 				hdd_err("roaming comp var timed out session Id: %d",
 					pAdapter->sessionId);
+				/* Clear roaming in progress flag */
+				hdd_set_roaming_in_progress(false);
 			}
 			if (pAdapter->roam_ho_fail) {
 				INIT_COMPLETION(pAdapter->disconnect_comp_var);
@@ -21620,13 +21672,56 @@ static int wlan_hdd_cfg80211_update_connect_params(struct wiphy *wiphy,
 
 #if defined(WLAN_FEATURE_SAE) && \
 	defined(CFG80211_EXTERNAL_AUTH_SUPPORT)
+#if defined(CFG80211_EXTERNAL_AUTH_AP_SUPPORT)
+/**
+ * wlan_hdd_extauth_cache_pmkid() - Extract and cache pmkid
+ * @adapter: hdd vdev/net_device context
+ * @hHal: Handle to the hal
+ * @params: Pointer to external auth params.
+ *
+ * Extract the PMKID and BSS from external auth params and add to the
+ * PMKSA Cache in CSR.
+ */
+static void
+wlan_hdd_extauth_cache_pmkid(hdd_adapter_t *adapter,
+			     tHalHandle hHal,
+			     struct cfg80211_external_auth_params *params)
+{
+	tPmkidCacheInfo pmk_cache;
+	QDF_STATUS result;
+
+	if (params->pmkid) {
+		qdf_mem_zero(&pmk_cache, sizeof(pmk_cache));
+		qdf_mem_copy(pmk_cache.BSSID.bytes, params->bssid,
+			     MAC_ADDR_LEN);
+		qdf_mem_copy(pmk_cache.PMKID, params->pmkid,
+			     CSR_RSN_PMKID_SIZE);
+		result = sme_roam_set_pmkid_cache(hHal, adapter->sessionId,
+						  &pmk_cache, 1, false);
+		if (!QDF_IS_STATUS_SUCCESS(result))
+			hdd_debug("external_auth: Failed to cache PMKID");
+	}
+}
+#else
+static void
+wlan_hdd_extauth_cache_pmkid(hdd_adapter_t *adapter,
+			     tHalHandle hHal,
+			     struct cfg80211_external_auth_params *params)
+{}
+#endif
 /**
  * __wlan_hdd_cfg80211_external_auth() - Handle external auth
+ *
  * @wiphy: Pointer to wireless phy
  * @dev: net device
- * @params: Pointer to external auth params
- *
+ * @params: Pointer to external auth params.
  * Return: 0 on success, negative errno on failure
+ *
+ * Userspace sends status of the external authentication(e.g., SAE) with a peer.
+ * The message carries BSSID of the peer and auth status (WLAN_STATUS_SUCCESS/
+ * WLAN_STATUS_UNSPECIFIED_FAILURE) in params.
+ * Userspace may send PMKID in params, which can be used for
+ * further connections.
  */
 static int
 __wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
@@ -21636,6 +21731,7 @@ __wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
 	hdd_adapter_t *adapter = WLAN_HDD_GET_PRIV_PTR(dev);
 	hdd_context_t *hdd_ctx = wiphy_priv(wiphy);
 	int ret;
+	struct qdf_mac_addr peer_mac_addr;
 
 	if (hdd_get_conparam() == QDF_GLOBAL_FTM_MODE) {
 		hdd_err("Command not allowed in FTM mode");
@@ -21651,8 +21747,14 @@ __wlan_hdd_cfg80211_external_auth(struct wiphy *wiphy,
 	if (ret)
 		return ret;
 
-	hdd_debug("external_auth status: %d", params->status);
-	sme_handle_sae_msg(hdd_ctx->hHal, adapter->sessionId, params->status);
+	hdd_debug("external_auth status: %d peer mac: " MAC_ADDRESS_STR,
+		  params->status, MAC_ADDR_ARRAY(params->bssid));
+	qdf_mem_copy(peer_mac_addr.bytes, params->bssid, MAC_ADDR_LEN);
+
+	wlan_hdd_extauth_cache_pmkid(adapter, hdd_ctx->hHal, params);
+
+	sme_handle_sae_msg(hdd_ctx->hHal, adapter->sessionId, params->status,
+			   peer_mac_addr);
 
 	return ret;
 }
