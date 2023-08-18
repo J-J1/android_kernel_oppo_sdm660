@@ -22,6 +22,7 @@
 //#else /* VENDOR_EDIT */
 #include "sdm660-internal-codec.dtsi"
 //#endif /* VENDOR_EDIT */
+#include "sdm660-ramoops-18323.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. SDM 660 PM660 + PM660A MTP";
