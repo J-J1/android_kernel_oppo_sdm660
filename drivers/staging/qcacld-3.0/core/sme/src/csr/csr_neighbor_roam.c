@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -397,6 +397,8 @@ csr_neighbor_roam_prepare_scan_profile_filter(tpAniSirGlobal pMac,
 				pScanFilter->SSIDs.numOfSSIDs);
 		if (NULL == pScanFilter->SSIDs.SSIDList) {
 			sme_err("Scan Filter SSID mem alloc failed");
+			qdf_mem_free(pScanFilter->BSSIDs.bssid);
+			pScanFilter->BSSIDs.bssid = NULL;
 			return QDF_STATUS_E_NOMEM;
 		}
 		for (i = 0; i < roam_params->num_ssid_allowed_list; i++) {
@@ -416,6 +418,8 @@ csr_neighbor_roam_prepare_scan_profile_filter(tpAniSirGlobal pMac,
 			qdf_mem_malloc(sizeof(tCsrSSIDInfo));
 		if (NULL == pScanFilter->SSIDs.SSIDList) {
 			sme_err("Scan Filter SSID mem alloc failed");
+			qdf_mem_free(pScanFilter->BSSIDs.bssid);
+			pScanFilter->BSSIDs.bssid = NULL;
 			return QDF_STATUS_E_NOMEM;
 		}
 		pScanFilter->SSIDs.SSIDList->handoffPermitted = 1;
@@ -456,6 +460,8 @@ csr_neighbor_roam_prepare_scan_profile_filter(tpAniSirGlobal pMac,
 			qdf_mem_malloc(num_ch * sizeof(uint8_t));
 		if (NULL == pScanFilter->ChannelInfo.ChannelList) {
 			sme_err("Scan Filter Ch list mem alloc failed");
+			qdf_mem_free(pScanFilter->BSSIDs.bssid);
+			pScanFilter->BSSIDs.bssid = NULL;
 			qdf_mem_free(pScanFilter->SSIDs.SSIDList);
 			pScanFilter->SSIDs.SSIDList = NULL;
 			return QDF_STATUS_E_NOMEM;
@@ -1043,9 +1049,14 @@ static void csr_neighbor_roam_info_ctx_init(
 		} else
 #endif
 		{
-			csr_roam_offload_scan(pMac, session_id,
-				ROAM_SCAN_OFFLOAD_START,
-				REASON_CTX_INIT);
+			if (!ngbr_roam_info->b_roam_scan_offload_started)
+				csr_roam_offload_scan(pMac, session_id,
+					ROAM_SCAN_OFFLOAD_START,
+					REASON_CTX_INIT);
+			else
+				csr_roam_offload_scan(pMac, session_id,
+					ROAM_SCAN_OFFLOAD_UPDATE_CFG,
+					REASON_CONNECT);
 
 			if (roam_profile &&
 				roam_profile->supplicant_disabled_roaming) {

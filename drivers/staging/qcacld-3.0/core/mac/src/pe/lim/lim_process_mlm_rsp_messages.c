@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -429,30 +429,6 @@ static void lim_send_mlm_assoc_req(tpAniSirGlobal mac_ctx,
 		(uint32_t *) assoc_req);
 }
 
-#ifdef WLAN_FEATURE_11W
-/**
- * lim_pmf_comeback_timer_callback() -PMF callback handler
- * @context: Timer context
- *
- * This function is called to processes the PMF comeback
- * callback
- *
- * Return: None
- */
-void lim_pmf_comeback_timer_callback(void *context)
-{
-	tComebackTimerInfo *info = (tComebackTimerInfo *) context;
-	tpAniSirGlobal mac_ctx = info->pMac;
-	tpPESession psessionEntry = &mac_ctx->lim.gpSession[info->sessionID];
-
-	pe_err("comeback later timer expired. sending MLM ASSOC req");
-	/* set MLM state such that ASSOC REQ packet will be sent out */
-	psessionEntry->limPrevMlmState = info->limPrevMlmState;
-	psessionEntry->limMlmState = info->limMlmState;
-	lim_send_mlm_assoc_req(mac_ctx, psessionEntry);
-}
-#endif /* WLAN_FEATURE_11W */
-
 /**
  * lim_process_mlm_auth_cnf()-Process Auth confirmation
  * @mac_ctx:  Pointer to Global MAC structure
@@ -781,7 +757,7 @@ lim_fill_assoc_ind_params(tpAniSirGlobal mac_ctx,
 	if (assoc_ind->VHTCaps.present)
 		sme_assoc_ind->VHTCaps = assoc_ind->VHTCaps;
 	sme_assoc_ind->capability_info = assoc_ind->capabilityInfo;
-
+	sme_assoc_ind->is_sae_authenticated = assoc_ind->is_sae_authenticated;
 }
 
 /**
