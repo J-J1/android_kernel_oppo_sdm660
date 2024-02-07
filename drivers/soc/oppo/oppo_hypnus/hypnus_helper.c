@@ -81,7 +81,7 @@ void lpm_qos_disable_sleep(bool disable)
 }
 EXPORT_SYMBOL(lpm_qos_disable_sleep);
 
-int hypnus_get_batt_capacity()
+int hypnus_get_batt_capacity(void)
 {
 	union power_supply_propval ret = {0, };
 	static struct power_supply *batt_psy;
@@ -97,7 +97,7 @@ int hypnus_get_batt_capacity()
 }
 EXPORT_SYMBOL(hypnus_get_batt_capacity);
 
-bool hypnus_get_charger_status()
+bool hypnus_get_charger_status(void)
 {
 	union power_supply_propval ret = {0,};
 	static struct power_supply *usb_psy;
